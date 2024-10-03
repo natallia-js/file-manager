@@ -1,0 +1,19 @@
+{
+  "name": "file-manager",
+  "version": "1.0.0",
+  "description": "my first cli file manager",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "type": "module",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/natallia-js/file-manager.git"
+  },
+  "author": "Natallia Fedartsova",
+  "license": "ISC"
+}
