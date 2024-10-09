@@ -8,12 +8,20 @@
   "type": "module",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node app.js"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/natallia-js/file-manager.git"
   },
+  "keywords": [
+    "nodejs",
+    "assignments",
+    "alreadybored",
+    "Natallia Fedartsova",
+    "file manager"
+  ],
   "author": "Natallia Fedartsova",
-  "license": "ISC"
+  "license": "ISC",
+  "homepage": "https://github.com/natallia-js/file-manager#readme"
 }
