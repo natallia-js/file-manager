@@ -6,6 +6,7 @@ import path from 'path';
 import Event from 'node:events';
 import zlib from 'zlib';
 import crypto from 'crypto';
+import { pipeline } from "node:stream/promises";
 
 import OUTPUT_MESSAGE_TYPES from './types/outputMessageTypes.js';
 import COMMANDS from './types/commands.js';
@@ -77,15 +78,6 @@ class FileManager extends Event.EventEmitter {
         this.emit('close');
     }
 
-    async #existsAsync(path) {
-        try {
-            await fsp.access(path, fsp.constants.F_OK);
-            return true;
-        } catch {
-            return false;
-        }
-    }
-
     /**
      * Returns false if path is not a directory or directory path does not exist.
      * path can be absolute or relative
@@ -110,6 +102,27 @@ class FileManager extends Event.EventEmitter {
         } catch {
             return false;
         }
+    }
+
+    /**
+     * For given absolute or relative path to the file pathToFile returns true if:
+     * - pathToFile has a non-zero length and...
+     * - it is an existing file and...
+     * - its absolute path is #rootWorkDir or subdirectory of #rootWorkDir
+     */
+    async #ifFileOK(pathToFile, checkFileExistance = true) {
+        if (!pathToFile?.length) {
+            return false;
+        }
+        const fullFilePath = path.resolve(this.#currentWorkDir, pathToFile);
+        const fullFileDirname = path.dirname(fullFilePath);
+        if (checkFileExistance && !await this.#isFile(fullFilePath)) {
+            return false;
+        }
+        if (!this.#ifAbsolutePathOK(fullFileDirname)) {
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -147,6 +160,9 @@ class FileManager extends Event.EventEmitter {
                 await this.#listDir(_commandWithParams);
                 break;
             // --------------- FILE OPERATIONS
+            case COMMANDS.printFileContent:
+                await this.#printFileContent(_commandWithParams);
+                break;
             // --------------- SYSTEM OPERATIONS
             case COMMANDS.os:
                 const commandParameter = this.#getOSCommandParameter(_commandWithParams);
@@ -200,7 +216,7 @@ class FileManager extends Event.EventEmitter {
     // --------------- GENERAL OPERATIONS
 
     #exit(commandWithParams) {
-        if (!commandWithParams?.length || commandWithParams.length > 1 || commandWithParams[0] !== COMMANDS.exit) {
+        if (!commandWithParams?.length || commandWithParams.length !== 1 || commandWithParams[0] !== COMMANDS.exit) {
             this.#showInvalidInputMessage();
             return;
         }
@@ -210,7 +226,7 @@ class FileManager extends Event.EventEmitter {
     // --------------- DIRECTORY OPERATIONS
 
     #goUpper(commandWithParams) {
-        if (!commandWithParams?.length || commandWithParams.length > 1 || commandWithParams[0] !== COMMANDS.goUpper) {
+        if (!commandWithParams?.length || commandWithParams.length !== 1 || commandWithParams[0] !== COMMANDS.goUpper) {
             this.#showInvalidInputMessage();
             return;
         }
@@ -220,7 +236,7 @@ class FileManager extends Event.EventEmitter {
     }
 
     async #changeDir(commandWithParams) {
-        if (!commandWithParams?.length || commandWithParams.length > 2 || commandWithParams[0] !== COMMANDS.changeDir) {
+        if (!commandWithParams?.length || commandWithParams.length !== 2 || commandWithParams[0] !== COMMANDS.changeDir) {
             this.#showInvalidInputMessage();
             return;
         }
@@ -237,7 +253,7 @@ class FileManager extends Event.EventEmitter {
     }
 
     async #listDir(commandWithParams) {
-        if (!commandWithParams?.length || commandWithParams.length > 1 || commandWithParams[0] !== COMMANDS.listDir) {
+        if (!commandWithParams?.length || commandWithParams.length !== 1 || commandWithParams[0] !== COMMANDS.listDir) {
             this.#showInvalidInputMessage();
             return;
         }
@@ -279,6 +295,18 @@ class FileManager extends Event.EventEmitter {
 
     // --------------- FILE OPERATIONS
 
+    async #printFileContent(commandWithParams) {
+        if (!commandWithParams?.length || commandWithParams.length !== 2 || commandWithParams[0] !== COMMANDS.printFileContent) {
+            return null;
+        }
+        if (!this.#ifFileOK(commandWithParams[1])) {
+            this.#showInvalidInputMessage();
+            return;
+        }
+        const stream = fs.createReadStream(path.resolve(this.#currentWorkDir, commandWithParams[1]), 'utf-8');
+        await pipeline(stream, process.stdout);
+    }
+
     // --------------- SYSTEM OPERATIONS
 
     #getOSCommandParameter(commandWithParams) {
@@ -312,13 +340,11 @@ class FileManager extends Event.EventEmitter {
     // --------------- HASH OPERATIONS
 
     async #getFileHash(commandWithParams) {
-        if (!commandWithParams?.length || commandWithParams.length > 2 || commandWithParams[0] !== COMMANDS.getFileHash) {
+        if (!commandWithParams?.length || commandWithParams.length !== 2 || commandWithParams[0] !== COMMANDS.getFileHash) {
             this.#showInvalidInputMessage();
             return;
         }
-        const fullFilePath = path.resolve(this.#currentWorkDir, commandWithParams[1]);
-        const fullFileDirname = path.dirname(fullFilePath);
-        if (!await this.#isFile(fullFilePath) || !this.#ifAbsolutePathOK(fullFileDirname)) {
+        if (!this.#ifFileOK(commandWithParams[1])) {
             this.#showInvalidInputMessage();
             return;
         }
@@ -331,53 +357,43 @@ class FileManager extends Event.EventEmitter {
                 readStream.on('end', () => resolve(hash.digest('hex')));
             });
         }
-        const hashValue = await getSha256Hash(fullFilePath);
+        const hashValue = await getSha256Hash(path.resolve(this.#currentWorkDir, commandWithParams[1]));
         this.writeln(hashValue);
     }
     
     // --------------- COMPRESS/DECOMPRESS OPERATIONS
 
     async #compressFile(commandWithParams) {
-        if (!commandWithParams?.length || commandWithParams.length > 3 || commandWithParams[0] !== COMMANDS.compressFile) {
+        if (!commandWithParams?.length || commandWithParams.length !== 3 || commandWithParams[0] !== COMMANDS.compressFile) {
             this.#showInvalidInputMessage();
             return;
         }
         try {
-            const initialFilePath = path.resolve(this.#currentWorkDir, commandWithParams[1]);
-            const initialFileDirname = path.dirname(initialFilePath);
-            const compressedFilePath = path.resolve(this.#currentWorkDir, commandWithParams[2]);
-            const compressedFileDirname = path.dirname(compressedFilePath);
-            if (!await this.#isFile(initialFilePath) || !this.#ifAbsolutePathOK(initialFileDirname) ||
-                !this.#ifAbsolutePathOK(compressedFileDirname)) {
+            if (!this.#ifFileOK(commandWithParams[1]) || !this.#ifFileOK(commandWithParams[2], false)) {
                 this.#showInvalidInputMessage();
                 return;
             }
-            const readStream = fs.createReadStream(initialFilePath);
-            const writeStream = fs.createWriteStream(compressedFilePath);
+            const readStream = fs.createReadStream(path.resolve(this.#currentWorkDir, commandWithParams[1]));
+            const writeStream = fs.createWriteStream(path.resolve(this.#currentWorkDir, commandWithParams[2]));
             const brotli = zlib.createBrotliCompress();
             readStream.pipe(brotli).pipe(writeStream);
-        } catch {
+        } catch (err) {
             this.#showOperationFailedMessage();
         } 
     }
 
     async #decompressFile(commandWithParams) {
-        if (!commandWithParams?.length || commandWithParams.length > 3 || commandWithParams[0] !== COMMANDS.decompressFile) {
+        if (!commandWithParams?.length || commandWithParams.length !== 3 || commandWithParams[0] !== COMMANDS.decompressFile) {
             this.#showInvalidInputMessage();
             return;
         }
         try {
-            const initialFilePath = path.resolve(this.#currentWorkDir, commandWithParams[1]);
-            const initialFileDirname = path.dirname(initialFilePath);
-            const decompressedFilePath = path.resolve(this.#currentWorkDir, commandWithParams[2]);
-            const decompressedFileDirname = path.dirname(decompressedFilePath);
-            if (!await this.#isFile(initialFilePath) || !this.#ifAbsolutePathOK(initialFileDirname) ||
-                !this.#ifAbsolutePathOK(decompressedFileDirname)) {
+            if (!this.#ifFileOK(commandWithParams[1]) || !this.#ifFileOK(commandWithParams[2], false)) {
                 this.#showInvalidInputMessage();
                 return;
             }
-            const readStream = fs.createReadStream(initialFilePath);
-            const writeStream = fs.createWriteStream(decompressedFilePath);
+            const readStream = fs.createReadStream(path.resolve(this.#currentWorkDir, commandWithParams[1]));
+            const writeStream = fs.createWriteStream(path.resolve(this.#currentWorkDir, commandWithParams[2]));
             const brotli = zlib.createBrotliDecompress();
             readStream.pipe(brotli).pipe(writeStream);
         } catch {
