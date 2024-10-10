@@ -1,4 +1,4 @@
-const WRONG_COMMAND_LINE_ARGUMENTS = 'Wrong command line arguments!';
+const WRONG_COMMAND_LINE_ARGUMENTS = 'Warning: User Name not set!';
 const USERNAME_COMMAND_LINE_ARG_NAME = 'username';
 export const UNKNOWN_USERNAME = 'Unknown';
 

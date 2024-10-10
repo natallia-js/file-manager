@@ -6,7 +6,7 @@ let userName = UNKNOWN_USERNAME;
 try {
     userName = getUserName(process.argv);
 } catch (error) {
-    process.stdout.write(`\x1b[31m$ ${error.message} \x1b[0m\n`);
+    process.stdout.write(`\x1b[31m${error.message}\x1b[0m\n`);
 }
 
 const fileManager = new FileManager(os.homedir(), userName);
